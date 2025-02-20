@@ -41,10 +41,10 @@ class batch_generator_external_images(Dataset):
         return  len(self.im)
 
 
-image_path = 'data/processed_data/subj{:02d}/nsd_train_stim_sub{}.npy'.format(sub,sub)
+image_path = '../data/processed_data/subj{:02d}/nsd_train_stim_sub{}.npy'.format(sub,sub)
 train_images = batch_generator_external_images(data_path = image_path)
 
-image_path = 'data/processed_data/subj{:02d}/nsd_test_stim_sub{}.npy'.format(sub,sub)
+image_path = '../data/processed_data/subj{:02d}/nsd_test_stim_sub{}.npy'.format(sub,sub)
 test_images = batch_generator_external_images(data_path = image_path)
 
 trainloader = DataLoader(train_images,batch_size,shuffle=False)
