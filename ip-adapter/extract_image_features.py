@@ -24,25 +24,31 @@ pipeline.load_ip_adapter("h94/IP-Adapter", subfolder="sdxl_models", weight_name=
 pipeline.set_ip_adapter_scale(0.6)
 
 
-class ImageDataset(Dataset):
+class batch_generator_external_images(Dataset):
     def __init__(self, data_path):
         self.data_path = data_path
-        self.image_files = [os.path.join(data_path, f) for f in os.listdir(data_path) if f.endswith(".png")]
+        self.im = np.load(data_path).astype(np.uint8)
 
-    def __getitem__(self, idx):
-        img = load_image(self.image_files[idx])
-        img = T.functional.resize(img, (64, 64))
+    def __getitem__(self,idx):
+        img = Image.fromarray(self.im[idx])
+        img = T.functional.resize(img,(64,64))
+        img = torch.tensor(np.array(img)).float()
+        #img = img/255
+        #img = img*2 - 1
         return img
 
     def __len__(self):
-        return len(self.image_files)
+        return  len(self.im)
 
-train_data_path = f"../data/processed_data/subj{sub:02d}/train"
-test_data_path = f"../data/processed_data/subj{sub:02d}/test"
-train_dataset = ImageDataset(train_data_path)
-test_dataset = ImageDataset(test_data_path)
-trainloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False)
-testloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+
+image_path = 'data/processed_data/subj{:02d}/nsd_train_stim_sub{}.npy'.format(sub,sub)
+train_images = batch_generator_external_images(data_path = image_path)
+
+image_path = 'data/processed_data/subj{:02d}/nsd_test_stim_sub{}.npy'.format(sub,sub)
+test_images = batch_generator_external_images(data_path = image_path)
+
+trainloader = DataLoader(train_images,batch_size,shuffle=False)
+testloader = DataLoader(test_images,batch_size,shuffle=False)
 
 def extract_features(dataloader):
     features = []
