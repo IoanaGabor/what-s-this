@@ -8,7 +8,7 @@ pipeline.set_ip_adapter_scale(0.6)
 
 
 image_embeds = pipeline.prepare_ip_adapter_image_embeds(
-    ip_adapter_image=image,
+    ip_adapter_image=load_image("image.png"),
     ip_adapter_image_embeds=None,
     device="cuda",
     num_images_per_prompt=1,
@@ -27,3 +27,14 @@ images = pipeline(
     num_inference_steps=100,
     generator=generator,
 ).images
+
+
+# Save images to disk
+output_dir = "generated_images"  # Change this to your desired directory
+import os
+
+os.makedirs(output_dir, exist_ok=True)  # Ensure the directory exists
+
+for idx, img in enumerate(images):
+    img_path = os.path.join(output_dir, f"generated_image_{idx}.png")
+    img.save(img_path)
