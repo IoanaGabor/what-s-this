@@ -30,12 +30,7 @@ class batch_generator_external_images(Dataset):
         self.im = np.load(data_path).astype(np.uint8)
 
     def __getitem__(self,idx):
-        img = Image.fromarray(self.im[idx])
-        img = T.functional.resize(img,(64,64))
-        img = torch.tensor(np.array(img)).float()
-        #img = img/255
-        #img = img*2 - 1
-        return img
+        return self.im[idx]
 
     def __len__(self):
         return  len(self.im)
@@ -52,24 +47,30 @@ testloader = DataLoader(test_images,batch_size,shuffle=False)
 
 def extract_features(dataloader):
     features = []
-    for batch in dataloader:
-        with torch.no_grad():
+    with torch.no_grad():
+        for idx, batch in enumerate(tqdm(dataloader)):
+            #img = Image.fromarray(batch[0].numpy())
             image_embeds = pipeline.prepare_ip_adapter_image_embeds(
-                ip_adapter_image=batch,
+                ip_adapter_image=Image.fromarray(batch[0].numpy()),
                 ip_adapter_image_embeds=None,
                 device="cuda",
                 num_images_per_prompt=1,
                 do_classifier_free_guidance=True,
             )
-            features.append(image_embeds.cpu().numpy())
-    return np.concatenate(features)
+            features.append(image_embeds)
+
+    return features
 
 print("Extracting features...")
 train_features = extract_features(trainloader)
 test_features = extract_features(testloader)
 
 os.makedirs(f"../data/extracted_features/subj{sub:02d}", exist_ok=True)
-outfile = f"../data/extracted_features/subj{sub:02d}/image_features.npz"
-np.savez(outfile, train_features=train_features, test_features=test_features)
+test_outfile = f"../data/extracted_features/subj{sub:02d}/image_features_test.npz"
+train_outfile = f"../data/extracted_features/subj{sub:02d}/image_features_train.npz"
+torch.save(test_features,test_outfile)
+torch.save(train_features,train_outfile)
+#np.savez(outfile, train_features=train_features, test_features=test_features)
 
-print(f"Feature extraction complete. Saved to {outfile}")
+print(f"Feature extraction complete. Saved")
+

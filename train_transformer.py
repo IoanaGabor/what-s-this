@@ -85,9 +85,10 @@ def load_data(sub, batch_size=4):
     norm_mean_train, norm_std_train = np.mean(train_fmri, axis=0), np.std(train_fmri, axis=0, ddof=1)
     train_fmri = (train_fmri - norm_mean_train) / norm_std_train
     test_fmri = (test_fmri - norm_mean_train) / norm_std_train
-    ip_features = np.load(f'data/extracted_features/subj{sub:02d}/nsd_ip_features.npz')
-    train_latents, test_latents = ip_features['train_ip_embeddings'], ip_features['test_ip_embeddings']
-    
+    test_outfile = f"../data/extracted_features/subj{sub:02d}/image_features_test.npz"
+    train_outfile = f"../data/extracted_features/subj{sub:02d}/image_features_train.npz"
+    train_latents = torch.load(train_outfile)
+    test_latents = torch.load(test_outfile)
     train_fmri, test_fmri = torch.tensor(train_fmri, dtype=torch.float32), torch.tensor(test_fmri, dtype=torch.float32)
     train_latents, test_latents = torch.tensor(train_latents, dtype=torch.float32), torch.tensor(test_latents, dtype=torch.float32)
     train_dataset = fMRIDataset(train_fmri, train_latents)
