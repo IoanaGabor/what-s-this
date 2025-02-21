@@ -80,8 +80,8 @@ class fMRIDataset(torch.utils.data.Dataset):
         return self.fmri_data[idx], self.latents[idx]
 
 def load_data(sub, batch_size=4):
-    train_fmri = np.load(f'data/processed_data/subj{sub:02d}/nsd_train_fmriavg_nsdgeneral_sub{sub}.npy') / 300
-    test_fmri = np.load(f'data/processed_data/subj{sub:02d}/nsd_test_fmriavg_nsdgeneral_sub{sub}.npy') / 300
+    train_fmri = np.load(f'../data/processed_data/subj{sub:02d}/nsd_train_fmriavg_nsdgeneral_sub{sub}.npy') / 300
+    test_fmri = np.load(f'../data/processed_data/subj{sub:02d}/nsd_test_fmriavg_nsdgeneral_sub{sub}.npy') / 300
     norm_mean_train, norm_std_train = np.mean(train_fmri, axis=0), np.std(train_fmri, axis=0, ddof=1)
     train_fmri = (train_fmri - norm_mean_train) / norm_std_train
     test_fmri = (test_fmri - norm_mean_train) / norm_std_train
