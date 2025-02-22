@@ -36,36 +36,53 @@ class ExperimentModel(pl.LightningModule):
         self.learning_rate = learning_rate
         self.alpha = alpha
         self.l1_loss = nn.L1Loss()
-    
-    def contrastive_loss(self, z, e):
-        similarity_matrix = torch.exp(torch.matmul(z, e.T))
-        pos_sim = torch.diagonal(similarity_matrix)
-        return -torch.mean(torch.log(pos_sim / torch.sum(similarity_matrix, dim=1)))
-    
+
+    def contrastive_loss(self, pred, target):
+        pred = pred.to(dtype=torch.float32)
+        target = target.to(dtype=torch.float32)
+        pred = pred.view(pred.shape[0], -1)   # Shape: [4, 2560]
+        target = target.view(target.shape[0], -1)  # Shape: [4, 2560]
+        numerator = torch.exp(pred * target)
+        denominator = torch.sum(torch.exp(pred.unsqueeze(1) * target.unsqueeze(0)), dim=1)
+        log_probs = torch.log(numerator / denominator)
+        loss = -log_probs.mean()
+        return loss
+
     def mindformer_loss(self, pred, target):
+        #print(f"Pred shape: {pred.shape}, Target shape: {target.shape}")
+
         return self.l1_loss(pred, target) + self.alpha * self.contrastive_loss(pred, target)
-    
+
     def forward(self, x):
         return self.model(x)
-    
+
     def training_step(self, batch, batch_idx):
         inputs, targets = batch
         outputs = self.model(inputs)
         loss = self.mindformer_loss(outputs, targets)
         self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
         return loss
-    
+
     def validation_step(self, batch, batch_idx):
         inputs, targets = batch
         outputs = self.model(inputs)
         loss = self.mindformer_loss(outputs, targets)
         self.log('val_loss', loss, on_step=False, on_epoch=True, prog_bar=True)
-        return loss
     
     def configure_optimizers(self):
-        optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=50)
-        return [optimizer], [{"scheduler": scheduler, "interval": "epoch"}]
+        optimizer = optim.AdamW(
+            self.model.parameters(),
+            lr=3e-4,  # Learning rate set to 3 × 10⁻⁴
+            betas=(0.9, 0.999)  # AdamW moment parameters
+        )
+        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=50)
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": scheduler,
+                "interval": "epoch"  # Update the learning rate per epoch
+                }
+        }
 
 # Data Loading
 class fMRIDataset(torch.utils.data.Dataset):
@@ -80,22 +97,28 @@ class fMRIDataset(torch.utils.data.Dataset):
         return self.fmri_data[idx], self.latents[idx]
 
 def load_data(sub, batch_size=4):
-    train_fmri = np.load(f'../data/processed_data/subj{sub:02d}/nsd_train_fmriavg_nsdgeneral_sub{sub}.npy') / 300
-    test_fmri = np.load(f'../data/processed_data/subj{sub:02d}/nsd_test_fmriavg_nsdgeneral_sub{sub}.npy') / 300
-    norm_mean_train, norm_std_train = np.mean(train_fmri, axis=0), np.std(train_fmri, axis=0, ddof=1)
-    train_fmri = (train_fmri - norm_mean_train) / norm_std_train
-    test_fmri = (test_fmri - norm_mean_train) / norm_std_train
-    test_outfile = f"../data/extracted_features/subj{sub:02d}/image_features_test.npz"
-    train_outfile = f"../data/extracted_features/subj{sub:02d}/image_features_train.npz"
+    train_fmri = np.load(f'data/processed_data/subj{sub:02d}/nsd_train_fmriavg_nsdgeneral_sub{sub}.npy')
+    test_fmri = np.load(f'data/processed_data/subj{sub:02d}/nsd_test_fmriavg_nsdgeneral_sub{sub}.npy')
+    test_outfile = f"data/extracted_features/subj{sub:02d}/image_features_test.npz"
+    train_outfile = f"data/extracted_features/subj{sub:02d}/image_features_train.npz"
     train_latents = torch.load(train_outfile)
     test_latents = torch.load(test_outfile)
     train_fmri, test_fmri = torch.tensor(train_fmri, dtype=torch.float32), torch.tensor(test_fmri, dtype=torch.float32)
+    train_latents = [torch.stack(sublist) for sublist in train_latents]
+    train_latents = torch.stack(train_latents)
+
+    test_latents = [torch.stack(sublist) for sublist in test_latents]
+    test_latents  = torch.stack(test_latents)
+
+
     train_latents, test_latents = torch.tensor(train_latents, dtype=torch.float32), torch.tensor(test_latents, dtype=torch.float32)
     train_dataset = fMRIDataset(train_fmri, train_latents)
     test_dataset = fMRIDataset(test_fmri, test_latents)
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     val_loader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size)
     return train_loader, val_loader
+
+
 
 # Training Function
 def train(args):
