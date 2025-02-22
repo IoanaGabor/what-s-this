@@ -3,6 +3,7 @@ import argparse
 from diffusers import AutoPipelineForText2Image
 from diffusers.utils import load_image
 from train_transformer import MindFormer
+import numpy as np
 import os
 
 def load_model(model_path, input_size=15724):
@@ -21,12 +22,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="MindFormer Prediction")
     parser.add_argument("--model_path", type=str, required=True, help="Path to trained model checkpoint")
     parser.add_argument("--sub", type=int, choices=[1, 2, 5, 7], required=True, help="Subject Number")
-    parser.add_argument("--output_path", type=str, default="image_embeds.ipadpt", help="Path to save image embeddings")
     args = parser.parse_args()
 
     model = load_model(args.model_path)
-    
-    input_data = torch.tensor(torch.load(args.input_path), dtype=torch.float32).to("cuda")
+    train_fmri = np.load(f'../data/processed_data/subj{args.sub}/nsd_train_fmriavg_nsdgeneral_sub{args.sub}.npy') / 300
+    test_fmri = np.load(f'../data/processed_data/subj{args.sub}/nsd_test_fmriavg_nsdgeneral_sub{args.sub}.npy') / 300
+    norm_mean_train, norm_std_train = np.mean(train_fmri, axis=0), np.std(train_fmri, axis=0, ddof=1)
+    train_fmri = (train_fmri - norm_mean_train) / norm_std_train
+    test_fmri = (test_fmri - norm_mean_train) / norm_std_train
+    input_data = torch.tensor(test_fmri, dtype=torch.float32).to("cuda")
     input_data = input_data.unsqueeze(0)  # Ensure batch dimension
     
     image_embeds = predict(model, input_data)
