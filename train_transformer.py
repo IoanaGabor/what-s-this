@@ -11,18 +11,18 @@ import torch.optim as optim
 
 # Define MindFormer Model
 class MindFormer(nn.Module):
-    def __init__(self, input_size, embed_dim=768, num_patches=16, num_heads=8, num_layers=4):
+    def __init__(self, input_size, embed_dim=1280, num_patches=2, num_heads=8, num_layers=2):
         super(MindFormer, self).__init__()
         self.embed_layer = nn.Linear(input_size, num_patches * embed_dim)
         self.subject_token = nn.Parameter(torch.randn(1, 1, embed_dim))
         self.position_embeddings = nn.Parameter(torch.randn(1, num_patches + 1, embed_dim))
-        
+
         encoder_layer = nn.TransformerEncoderLayer(d_model=embed_dim, nhead=num_heads, dim_feedforward=embed_dim*4, activation='gelu')
         self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
         self.output_layer = nn.Linear(embed_dim, embed_dim)
-        
+
     def forward(self, x):
-        x = self.embed_layer(x).view(x.shape[0], 16, 768)
+        x = self.embed_layer(x).view(x.shape[0], 2, 1280)
         x = torch.cat([self.subject_token.repeat(x.shape[0], 1, 1), x], dim=1)
         x = x + self.position_embeddings
         x = self.transformer(x)
