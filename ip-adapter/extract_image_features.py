@@ -7,7 +7,27 @@ import numpy as np
 from torch.utils.data import DataLoader, Dataset
 from PIL import Image
 import torchvision.transforms as T
+from tqdm import tqdm
+from diffusers import StableDiffusionPipeline, StableDiffusionImg2ImgPipeline, StableDiffusionInpaintPipelineLegacy, DDIMScheduler, AutoencoderKL
+from ip_adapter import IPAdapterPlus
 
+
+base_model_path = "SG161222/Realistic_Vision_V4.0_noVAE"
+vae_model_path = "stabilityai/sd-vae-ft-mse"
+image_encoder_path = "models/image_encoder"
+ip_ckpt = "models/ip-adapter-plus_sd15.bin"
+device = "cuda"
+
+noise_scheduler = DDIMScheduler(
+    num_train_timesteps=1000,
+    beta_start=0.00085,
+    beta_end=0.012,
+    beta_schedule="scaled_linear",
+    clip_sample=False,
+    set_alpha_to_one=False,
+    steps_offset=1,
+)
+vae = AutoencoderKL.from_pretrained(vae_model_path).to(dtype=torch.float16)
 
 parser = argparse.ArgumentParser(description='Feature Extraction from Images')
 parser.add_argument("-sub", "--sub", help="Subject Number", default=1, type=int)
@@ -17,12 +37,17 @@ sub = args.sub
 batch_size = args.bs
 
 print("Loading Stable Diffusion pipeline with IP-Adapter...")
-pipeline = AutoPipelineForText2Image.from_pretrained(
-    "stabilityai/stable-diffusion-xl-base-1.0", torch_dtype=torch.float16
-).to("cuda")
-pipeline.load_ip_adapter("h94/IP-Adapter", subfolder="sdxl_models", weight_name="ip-adapter_sdxl.bin")
-pipeline.set_ip_adapter_scale(0.6)
 
+pipe = StableDiffusionPipeline.from_pretrained(
+    base_model_path,
+    torch_dtype=torch.float16,
+    scheduler=noise_scheduler,
+    vae=vae,
+    feature_extractor=None,
+    safety_checker=None
+)
+
+ip_model = IPAdapterPlus(pipe, image_encoder_path, ip_ckpt, device, num_tokens=16)
 
 class batch_generator_external_images(Dataset):
     def __init__(self, data_path):
@@ -44,20 +69,29 @@ test_images = batch_generator_external_images(data_path = image_path)
 
 trainloader = DataLoader(train_images,batch_size,shuffle=False)
 testloader = DataLoader(test_images,batch_size,shuffle=False)
+generator = torch.Generator(device="cuda").manual_seed(0)
+
+
 
 def extract_features(dataloader):
     features = []
+    cnt = 0
     with torch.no_grad():
-        for idx, batch in enumerate(tqdm(dataloader)):
-            #img = Image.fromarray(batch[0].numpy())
-            image_embeds = pipeline.prepare_ip_adapter_image_embeds(
-                ip_adapter_image=Image.fromarray(batch[0].numpy()),
-                ip_adapter_image_embeds=None,
-                device="cuda",
-                num_images_per_prompt=1,
-                do_classifier_free_guidance=True,
-            )
-            features.append(image_embeds)
+        for idx, batch in tqdm(enumerate(dataloader)):
+            for b in batch:
+                img = Image.fromarray(b.numpy())
+                img.save(f"{cnt}-original.png")
+                image_embeds=ip_model.get_image_embeds(pil_image=img)
+                features.append(image_embeds)
+            
+                images = pipe(
+                    prompt_embeds=image_embeds[0], 
+                    negative_prompt_embeds=image_embeds[1],
+                    num_inference_steps=100  # Adjust for quality
+                ).images[0]
+
+                images.save(f"{cnt}-recreated.png")
+                cnt += 1
 
     return features
 

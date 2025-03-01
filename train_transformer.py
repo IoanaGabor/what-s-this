@@ -11,7 +11,7 @@ import torch.optim as optim
 
 # Define MindFormer Model
 class MindFormer(nn.Module):
-    def __init__(self, input_size, embed_dim=1280, num_patches=2, num_heads=8, num_layers=2):
+    def __init__(self, input_size, embed_dim=768, num_patches=32, num_heads=256, num_layers=60):
         super(MindFormer, self).__init__()
         self.embed_layer = nn.Linear(input_size, num_patches * embed_dim)
         self.subject_token = nn.Parameter(torch.randn(1, 1, embed_dim))
@@ -22,7 +22,7 @@ class MindFormer(nn.Module):
         self.output_layer = nn.Linear(embed_dim, embed_dim)
 
     def forward(self, x):
-        x = self.embed_layer(x).view(x.shape[0], 2, 1280)
+        x = self.embed_layer(x).view(x.shape[0], 32, 768)
         x = torch.cat([self.subject_token.repeat(x.shape[0], 1, 1), x], dim=1)
         x = x + self.position_embeddings
         x = self.transformer(x)
@@ -30,7 +30,7 @@ class MindFormer(nn.Module):
 
 # PyTorch Lightning Module
 class ExperimentModel(pl.LightningModule):
-    def __init__(self, model, learning_rate=1e-4, alpha=0.1):
+    def __init__(self, model, learning_rate=3e-4, alpha=1):
         super(ExperimentModel, self).__init__()
         self.model = model
         self.learning_rate = learning_rate
@@ -103,11 +103,21 @@ def load_data(sub, batch_size=4):
     train_outfile = f"data/extracted_features/subj{sub:02d}/image_features_train.npz"
     train_latents = torch.load(train_outfile)
     test_latents = torch.load(test_outfile)
+    train_fmri = train_fmri/300
+    test_fmri = test_fmri/300
+
+
+    norm_mean_train = np.mean(train_fmri, axis=0)
+    norm_scale_train = np.std(train_fmri, axis=0, ddof=1)
+    train_fmri = (train_fmri - norm_mean_train) / norm_scale_train
+    test_fmri = (test_fmri - norm_mean_train) / norm_scale_train
+    print(train_fmri.shape)
     train_fmri, test_fmri = torch.tensor(train_fmri, dtype=torch.float32), torch.tensor(test_fmri, dtype=torch.float32)
-    train_latents = [torch.stack(sublist) for sublist in train_latents]
+    train_latents = [torch.stack([sublist[i][0][j] for i in range(2) for j in range(16)]) for sublist in train_latents]
     train_latents = torch.stack(train_latents)
 
-    test_latents = [torch.stack(sublist) for sublist in test_latents]
+    test_latents = [torch.stack([sublist[i][0][j] for i in range(2) for j in range(16)]) for sublist in test_latents]
+    print(train_latents.shape)
     test_latents  = torch.stack(test_latents)
 
 
@@ -131,7 +141,7 @@ def train(args):
     callbacks = [
         LearningRateMonitor(logging_interval='epoch'),
         ModelCheckpoint(dirpath="./checkpoints/", filename="model_{epoch:02d}_{val_loss:.5f}", save_top_k=3, monitor="val_loss", mode="min"),
-        EarlyStopping(monitor="val_loss", patience=10, mode="min", verbose=True),
+        EarlyStopping(monitor="val_loss", patience=200, mode="min", verbose=True),
     ]
     
     trainer = pl.Trainer(
