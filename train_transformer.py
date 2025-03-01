@@ -9,24 +9,105 @@ from pytorch_lightning.loggers import WandbLogger
 import torch.nn as nn
 import torch.optim as optim
 
-# Define MindFormer Model
+
+from einops import rearrange, repeat
+from einops.layers.torch import Rearrange
+
+# helpers
+
+def pair(t):
+    return t if isinstance(t, tuple) else (t, t)
+
+# classes
+
+class FeedForward(nn.Module):
+    def __init__(self, dim, hidden_dim, dropout = 0.):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.LayerNorm(dim),
+            nn.Linear(dim, hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, dim),
+            nn.Dropout(dropout)
+        )
+
+    def forward(self, x):
+        return self.net(x)
+
+class Attention(nn.Module):
+    def __init__(self, dim, heads = 8, dim_head = 64, dropout = 0.):
+        super().__init__()
+        inner_dim = dim_head *  heads
+        project_out = not (heads == 1 and dim_head == dim)
+
+        self.heads = heads
+        self.scale = dim_head ** -0.5
+
+        self.norm = nn.LayerNorm(dim)
+
+        self.attend = nn.Softmax(dim = -1)
+        self.dropout = nn.Dropout(dropout)
+
+        self.to_qkv = nn.Linear(dim, inner_dim * 3, bias = False)
+
+        self.to_out = nn.Sequential(
+            nn.Linear(inner_dim, dim),
+            nn.Dropout(dropout)
+        ) if project_out else nn.Identity()
+
+    def forward(self, x):
+        x = self.norm(x)
+
+        qkv = self.to_qkv(x).chunk(3, dim = -1)
+        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h = self.heads), qkv)
+
+        dots = torch.matmul(q, k.transpose(-1, -2)) * self.scale
+
+        attn = self.attend(dots)
+        attn = self.dropout(attn)
+
+        out = torch.matmul(attn, v)
+        out = rearrange(out, 'b h n d -> b n (h d)')
+        return self.to_out(out)
+
+class Transformer(nn.Module):
+    def __init__(self, dim, depth, heads, dim_head, mlp_dim, dropout = 0.):
+        super().__init__()
+        self.norm = nn.LayerNorm(dim)
+        self.layers = nn.ModuleList([])
+        for _ in range(depth):
+            self.layers.append(nn.ModuleList([
+                Attention(dim, heads = heads, dim_head = dim_head, dropout = dropout),
+                FeedForward(dim, mlp_dim, dropout = dropout)
+            ]))
+
+    def forward(self, x):
+        for attn, ff in self.layers:
+            x = attn(x) + x
+            x = ff(x) + x
+
+        return self.norm(x)
+
+
 class MindFormer(nn.Module):
     def __init__(self, input_size, embed_dim=768, num_patches=32, num_heads=256, num_layers=60):
         super(MindFormer, self).__init__()
         self.embed_layer = nn.Linear(input_size, num_patches * embed_dim)
         self.subject_token = nn.Parameter(torch.randn(1, 1, embed_dim))
         self.position_embeddings = nn.Parameter(torch.randn(1, num_patches + 1, embed_dim))
-
-        encoder_layer = nn.TransformerEncoderLayer(d_model=embed_dim, nhead=num_heads, dim_feedforward=embed_dim*4, activation='gelu')
-        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
-        self.output_layer = nn.Linear(embed_dim, embed_dim)
+        self.dropout = nn.Dropout(0.)
+        #encoder_layer = nn.TransformerEncoderLayer(d_model=embed_dim, nhead=num_heads, dim_feedforward=embed_dim*4, activation='gelu')
+        self.transformer = Transformer(embed_dim, num_layers, num_heads, 64, 32, 0.)
+        #self.output_layer = nn.Linear(embed_dim, embed_dim)
 
     def forward(self, x):
         x = self.embed_layer(x).view(x.shape[0], 32, 768)
         x = torch.cat([self.subject_token.repeat(x.shape[0], 1, 1), x], dim=1)
         x = x + self.position_embeddings
+        x = self.dropout(x)
         x = self.transformer(x)
-        return self.output_layer(x[:, 1:])
+        return x[:, 1:]
 
 # PyTorch Lightning Module
 class ExperimentModel(pl.LightningModule):
